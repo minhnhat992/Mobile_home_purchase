@@ -10,20 +10,21 @@ library(caret)
 library(Hmisc)
 library(plyr)
 library(dplyr)# for %>% 
+library(data.table)
 library(sqldf)
 library(gdata)
 library(utils)
+library(car)# for multicollinearity
 library(xlsx)# output file to excel
 library(MASS)#chi-square test of independence
 options(scipen=999)
-#find perl path
-prl <- "D:/PERL/bin/perl.exe"
+#find perl path for utils package
+prl <- "/PERL/bin/perl.exe"
 
 
 #import the data
-trainning_set <- read.csv("D:/Drive/Data Warehousing/GROUP ASSIGNMENT/trainning_set.txt", 
+trainning_set <- read.csv("/trainning_set.txt", 
                           header = TRUE, sep = ",")
-
 #View(trainning_set)
 
 
@@ -38,24 +39,20 @@ trainning_set <- read.csv("D:/Drive/Data Warehousing/GROUP ASSIGNMENT/trainning_
 #})
 #trainning_na_count <- data.frame(trainning_na_count)
 
-# since subtype and custype are nomial categorical variables (values not in order)
-#and ones with code table are ordial (ranked numerical categorical variables)
-#while ones with number of are discrete
+#set data types
 trainning_set$subtype <- factor(trainning_set$subtype,levels = 1:41,ordered = FALSE)
 trainning_set$cust_type <- factor(trainning_set$cust_type,levels = 1:10, ordered = FALSE)
 trainning_set$ave_age <- ordered(trainning_set$ave_age, levels = 1:6)
 trainning_set$houses <- ordered(trainning_set$houses, levels = 1:10)
 trainning_set$household_size <- ordered(trainning_set$household_size, levels = 1:6)
 trainning_set$mobile_home_insurance <- factor(ifelse(trainning_set$mobile_home_insurance == 1,"y","n"))
-#trainning_set$mobile_home_insurance <- factor(trainning_set$mobile_home_insurance, ordered = FALSE)
 trainning_set[6:64] <- lapply(trainning_set[6:64], ordered, levels = 0:9)
 trainning_set[65:85]<- lapply(trainning_set[65:85], ordered)
 trainning_set$purchase_power <- factor(trainning_set$purchase_power, levels = 1:8, ordered = TRUE)
 str(trainning_set)
-#trainning_set[c(2:4,6:85)] <- lapply(trainning_set[c(2:4,6:85)], as.integer)
 
 
-#split 
+#split trainning set 70:30 ratio
 set.seed(1234)
 splitindex <- createDataPartition(trainning_set$mobile_home_insurance, 
                                   p = 0.7, 
