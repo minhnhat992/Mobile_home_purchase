@@ -1,0 +1,153 @@
+#how to change file : set working directory (setwd) then use file.rename
+library(stepPlr)
+library(pROC)
+library(ROCR)
+library(Deducer)
+library(psych)
+library(ROSE)
+library(caret)
+library(Hmisc)
+library(plyr)
+library(dplyr)# for %>% 
+library(data.table)
+library(sqldf)
+library(gdata)
+library(utils)
+library(car)# for multicollinearity
+library(xlsx)# output file to excel
+library(MASS)#chi-square test of independence
+options(scipen=999)
+#find perl path
+prl <- "D:/PERL/bin/perl.exe"
+
+
+#import the data
+trainning_set <- read.csv("D:/Drive/Data Warehousing/GROUP ASSIGNMENT/trainning_set.txt", 
+                          header = TRUE, sep = ",")
+
+#View(trainning_set)
+
+
+#see if any missing data
+#is.na(trainning_set)
+#sum(is.na(trainning_set))#number of missing values
+
+
+# see which columns has missing data
+#trainning_na_count <- sapply(trainning_set, function(x){
+#  sum(is.na(x))
+#})
+#trainning_na_count <- data.frame(trainning_na_count)
+
+# since subtype and custype are nomial categorical variables (values not in order)
+#and ones with code table are ordial (ranked numerical categorical variables)
+#while ones with number of are discrete
+trainning_set$subtype <- factor(trainning_set$subtype,levels = 1:41,ordered = FALSE)
+trainning_set$cust_type <- factor(trainning_set$cust_type,levels = 1:10, ordered = FALSE)
+trainning_set$ave_age <- ordered(trainning_set$ave_age, levels = 1:6)
+trainning_set$houses <- ordered(trainning_set$houses, levels = 1:10)
+trainning_set$household_size <- ordered(trainning_set$household_size, levels = 1:6)
+trainning_set$mobile_home_insurance <- factor(ifelse(trainning_set$mobile_home_insurance == 1,"y","n"))
+#trainning_set$mobile_home_insurance <- factor(trainning_set$mobile_home_insurance, ordered = FALSE)
+trainning_set[6:64] <- lapply(trainning_set[6:64], ordered, levels = 0:9)
+trainning_set[65:85]<- lapply(trainning_set[65:85], ordered)
+trainning_set$purchase_power <- factor(trainning_set$purchase_power, levels = 1:8, ordered = TRUE)
+str(trainning_set)
+#trainning_set[c(2:4,6:85)] <- lapply(trainning_set[c(2:4,6:85)], as.integer)
+
+
+#split 
+set.seed(1234)
+splitindex <- createDataPartition(trainning_set$mobile_home_insurance, 
+                                  p = 0.7, 
+                                  list = FALSE)
+train_set <- trainning_set[splitindex,]
+valid_set <- trainning_set[-splitindex,]
+
+#balance data set
+## before
+print(prop.table(table(trainning_set$mobile_home_insurance))*100)
+##balance data
+trainning_set_bal <- ovun.sample(mobile_home_insurance~., 
+                                 data = train_set, 
+                                 p = 0.20,
+                                 seed = 1,
+                                 method = "both")$data
+##after
+print(prop.table(table(trainning_set_bal$mobile_home_insurance))*100)
+
+
+#ordial vs oridal :polychoric correlation
+ordial_tab <- trainning_set_bal[c(2:4,6:85)]
+ordial_tab<-data.frame(lapply(ordial_tab, as.numeric))
+ordial_tab_2 <- cor(ordial_tab, method = "spearman")
+ordial_tab_3 <- findCorrelation(ordial_tab_2, 
+                                cutoff = 0.9,
+                                names = TRUE, 
+                                exact =TRUE, 
+                                verbose = TRUE) %>%
+  print()
+
+
+
+trainning_set_bal[,ordial_tab_3] <- list(NULL)
+trainning_set_bal$subtype<- NULL
+trainning_set_bal$cust_type <- NULL
+
+valid_set[,ordial_tab_3] <- list(NULL)
+valid_set$subtype<- NULL
+valid_set$cust_type <- NULL
+
+train_control <- trainControl(method = "cv",
+                              number = 10,
+                              repeats = 3,
+                              savePredictions = TRUE,
+                              classProbs = TRUE,
+                              summaryFunction = twoClassSummary)
+
+
+model <- train(data = trainning_set_bal,
+               mobile_home_insurance~.,
+               trControl = train_control,
+               method = "glm",
+               tuneLength = 5,
+               metric ="ROC",
+               preProcess = c("center","scale","pca"))
+summary(model)
+#train set performance
+probs2 <- predict(model,newdata = trainning_set_bal, type ="prob")
+pred2  <- factor(ifelse(probs2[,"y"] > 0.5,"y","n"))
+summary(pred2)
+matrix <- confusionMatrix(data = pred2, 
+                          trainning_set_bal$mobile_home_insurance,
+                          positive = levels(trainning_set_bal$mobile_home_insurance)[2]) %>% 
+  print()
+rocCurve1  <- roc(response = trainning_set_bal$mobile_home_insurance,
+                  predictor = probs2[,"y"],
+                  levels = levels(trainning_set_bal$mobile_home_insurance))
+curve11 <- plot(rocCurve1, print.thres = c(.5), type = "S",
+                print.thres.pattern = "%.3f (Spec = %.2f, Sens = %.2f)",
+                print.thres.cex = .8,
+                legacy.axes = TRUE)
+curve11#AUC
+
+#valid_set performance
+probs <- predict(model,newdata = valid_set, type ="prob")
+pred  <- factor(ifelse(probs[,"y"] > 0.1,"y","n"))
+summary(pred)
+levels(valid_set$mobile_home_insurance)
+matrix <- confusionMatrix(data = pred, 
+                          valid_set$mobile_home_insurance,
+                          positive = levels(valid_set$mobile_home_insurance)[2]) %>% 
+  print()
+
+rocCurve  <- roc(response = valid_set$mobile_home_insurance,
+                 predictor = probs[,"y"],
+                 levels = levels(valid_set$mobile_home_insurance))
+curve1 <- plot(rocCurve, print.thres = c(.1), type = "S",
+               print.thres.pattern = "%.3f (Spec = %.2f, Sens = %.2f)",
+               print.thres.cex = .8,
+               legacy.axes = TRUE)
+curve1
+
+#test <- predict(logit_bal,newdata = test_set, type = "response")
